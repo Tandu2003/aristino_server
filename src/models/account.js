@@ -15,6 +15,7 @@ const AccountSchema = new mongoose.Schema(
     password: { type: String, required: true },
     role: { type: String, enum: ["user", "admin"], default: "user" },
     profile: { type: profileSchema, required: true },
+    verify: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
