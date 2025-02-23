@@ -2,12 +2,11 @@ require("dotenv").config();
 const bcrypt = require("../config/bcrypt");
 const jwt = require("../config/jwt");
 const account = require("../models/account");
-const { sendEmail, sendVerificationEmail } = require("../config/nodemailer");
+const sendEmail = require("../config/nodemailer");
 
 class AuthController {
   async check(req, res) {
     const token = req.cookies.token;
-    const cookieUser = req.cookies.user;
 
     if (!token) {
       return res.status(401).json({
@@ -22,7 +21,6 @@ class AuthController {
 
     if (!checkUser) {
       res.clearCookie("token");
-      res.clearCookie("user");
       return res.status(401).json({
         success: false,
         loggedIn: false,
@@ -30,9 +28,10 @@ class AuthController {
       });
     }
 
-    if (user.password !== checkUser.password) {
+    console.log(user);
+
+    if (checkUser.password !== user.password) {
       res.clearCookie("token");
-      res.clearCookie("user");
       return res.status(401).json({
         success: false,
         loggedIn: false,
@@ -52,7 +51,7 @@ class AuthController {
       success: true,
       loggedIn: true,
       message: "Đã đăng nhập",
-      user: JSON.parse(cookieUser),
+      user: checkUser,
     });
   }
 
@@ -62,14 +61,14 @@ class AuthController {
     try {
       const user = await account.findOne({ email });
 
-      console.log(user);
-
       if (!user) {
         return res.status(401).json({
           success: false,
           message: "Email không tồn tại",
         });
       }
+
+      const token = jwt.generateToken(user);
 
       const isMatch = await bcrypt.comparePassword(password, user.password);
 
@@ -81,7 +80,28 @@ class AuthController {
       }
 
       if (!user.verify) {
-        sendVerificationEmail(user, jwt.generateToken(user));
+        sendEmail(
+          user.email,
+          "Thông báo xác thực tài khoản",
+          `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+              <h2 style="color: #007bff; text-align: center;">Xác thực tài khoản</h2>
+              <p>Xin chào <strong>${
+                user.profile.firstName + " " + user.profile.lastName || "bạn"
+              }</strong>,</p>
+              <p>Bạn đã đăng ký tài khoản trên hệ thống của chúng tôi. Vui lòng nhấn vào nút bên dưới để xác nhận tài khoản:</p>
+              <div style="text-align: center; margin: 20px 0;">
+                  <a href="http://localhost:5000/api/auth/verify-email/${token}" 
+                    style="background-color: #007bff; color: #fff; text-decoration: none; padding: 10px 20px; border-radius: 5px; font-weight: bold;">
+                    Xác nhận tài khoản
+                  </a>
+              </div>
+              <p>Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này.</p>
+              <p><strong>Trân trọng,</strong></p>
+              <p><strong>Admin</strong></p>
+          </div>
+          `
+        );
 
         return res.status(401).json({
           success: false,
@@ -89,35 +109,32 @@ class AuthController {
         });
       }
 
-      const token = jwt.generateToken(user);
       res.cookie("token", token, {
         httpOnly: true,
         // secure: process.env.NODE_ENV === "production",
         maxAge: 24 * 60 * 60 * 1000 * 7, // 7 days
       });
-      res.cookie("user", JSON.stringify(user), {
-        httpOnly: true,
-        secure: false,
-      });
 
-      await sendEmail(
-        user.email,
-        "Thông báo đăng nhập",
-        `
-        <div style="font-family: Arial, sans-serif; line-height: 1.5; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-            <h2 style="color: #007bff;">Thông báo đăng nhập</h2>
-            <p>Xin chào <strong>${
-              user.profile.firstName + " " + user.profile.lastName || "người dùng"
-            }</strong>,</p>
-            <p>Chúng tôi phát hiện một lần đăng nhập vào tài khoản của bạn.</p>
-            <p><sp>Thời gian: </span> ${new Date().toLocaleString()}</p>
-            <p>Nếu bạn không phải là người thực hiện hãy đổi mật khẩu ngay lập tức.</p>
-            <p>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.</p>
-            <p><strong>Trân trọng,</strong></p>
-            <p><strong>Admin</strong></p>
-        </div>
-        `
-      );
+      if (user.role !== "admin") {
+        await sendEmail(
+          user.email,
+          "Thông báo đăng nhập",
+          `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+              <h2 style="color: #007bff;">Thông báo đăng nhập</h2>
+              <p>Xin chào <strong>${
+                user.profile.firstName + " " + user.profile.lastName || "người dùng"
+              }</strong>,</p>
+              <p>Chúng tôi phát hiện một lần đăng nhập vào tài khoản của bạn.</p>
+              <p><sp>Thời gian: </span> ${new Date().toLocaleString()}</p>
+              <p>Nếu bạn không phải là người thực hiện hãy đổi mật khẩu ngay lập tức.</p>
+              <p>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.</p>
+              <p><strong>Trân trọng,</strong></p>
+              <p><strong>Admin</strong></p>
+          </div>
+          `
+        );
+      }
 
       res.status(200).json({
         success: true,
@@ -160,7 +177,30 @@ class AuthController {
 
       await user.save();
 
-      sendVerificationEmail(user, jwt.generateToken(user));
+      const token = jwt.generateToken(user);
+
+      sendEmail(
+        user.email,
+        "Thông báo xác thực tài khoản",
+        `
+        <div style="font-family: Arial, sans-serif; line-height: 1.5; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+            <h2 style="color: #007bff; text-align: center;">Xác thực tài khoản</h2>
+            <p>Xin chào <strong>${
+              user.profile.firstName + " " + user.profile.lastName || "bạn"
+            }</strong>,</p>
+            <p>Bạn đã đăng ký tài khoản trên hệ thống của chúng tôi. Vui lòng nhấn vào nút bên dưới để xác nhận tài khoản:</p>
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="http://localhost:5000/api/auth/verify-email/${token}" 
+                  style="background-color: #007bff; color: #fff; text-decoration: none; padding: 10px 20px; border-radius: 5px; font-weight: bold;">
+                  Xác nhận tài khoản
+                </a>
+            </div>
+            <p>Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này.</p>
+            <p><strong>Trân trọng,</strong></p>
+            <p><strong>Admin</strong></p>
+        </div>
+        `
+      );
 
       res.status(201).json({
         success: true,
@@ -176,7 +216,6 @@ class AuthController {
 
   async logout(req, res) {
     res.clearCookie("token");
-    res.clearCookie("user");
     res.status(200).json({
       success: true,
       loggedIn: false,
@@ -234,6 +273,82 @@ class AuthController {
       }
       return res.status(500).json({ success: false, message: "Xác thực tài khoản thất bại" });
     }
+  }
+
+  async loginGoogle(req, res) {
+    const { email, given_name, family_name, picture, email_verified, sub } = req.body;
+
+    try {
+      const user = await account.findOne({ email });
+
+      if (!user) {
+        const hashedPassword = await bcrypt.hashPassword(sub);
+
+        const newUser = new account({
+          email,
+          password: hashedPassword,
+          profile: {
+            lastName: family_name,
+            firstName: given_name,
+            avatar: picture,
+          },
+          verify: email_verified,
+        });
+
+        await newUser.save();
+
+        const token = jwt.generateToken(newUser);
+
+        res.cookie("token", token, {
+          httpOnly: true,
+          // secure: process.env.NODE_ENV === "production",
+          maxAge: 24 * 60 * 60 * 1000 * 7,
+        });
+
+        return res.status(200).json({
+          success: true,
+          loggedIn: true,
+          message: "Đăng ký và đăng nhập thành công",
+          user: newUser,
+        });
+      }
+
+      const token = jwt.generateToken(user);
+
+      res.cookie("token", token, {
+        httpOnly: true,
+        // secure: process.env.NODE_ENV === "production",
+        maxAge: 24 * 60 * 60 * 1000 * 7, // 7 days
+      });
+
+      if (user.role !== "admin") {
+        await sendEmail(
+          user.email,
+          "Thông báo đăng nhập",
+          `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+              <h2 style="color: #007bff;">Thông báo đăng nhập</h2>
+              <p>Xin chào <strong>${
+                user.profile.firstName + " " + user.profile.lastName || "người dùng"
+              }</strong>,</p>
+              <p>Chúng tôi phát hiện một lần đăng nhập vào tài khoản của bạn.</p>
+              <p><sp>Thời gian: </span> ${new Date().toLocaleString()}</p>
+              <p>Nếu bạn không phải là người thực hiện hãy đổi mật khẩu ngay lập tức.</p>
+              <p>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.</p>
+              <p><strong>Trân trọng,</strong></p>
+              <p><strong>Admin</strong></p>
+          </div>
+          `
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+        loggedIn: true,
+        message: "Đăng nhập thành công",
+        user,
+      });
+    } catch (error) {}
   }
 }
 
