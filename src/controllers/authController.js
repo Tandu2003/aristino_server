@@ -28,8 +28,6 @@ class AuthController {
       });
     }
 
-    console.log(user);
-
     if (checkUser.password !== user.password) {
       res.clearCookie("token");
       return res.status(401).json({
@@ -293,6 +291,82 @@ class AuthController {
             avatar: picture,
           },
           verify: email_verified,
+        });
+
+        await newUser.save();
+
+        const token = jwt.generateToken(newUser);
+
+        res.cookie("token", token, {
+          httpOnly: true,
+          // secure: process.env.NODE_ENV === "production",
+          maxAge: 24 * 60 * 60 * 1000 * 7,
+        });
+
+        return res.status(200).json({
+          success: true,
+          loggedIn: true,
+          message: "Đăng ký và đăng nhập thành công",
+          user: newUser,
+        });
+      }
+
+      const token = jwt.generateToken(user);
+
+      res.cookie("token", token, {
+        httpOnly: true,
+        // secure: process.env.NODE_ENV === "production",
+        maxAge: 24 * 60 * 60 * 1000 * 7, // 7 days
+      });
+
+      if (user.role !== "admin") {
+        await sendEmail(
+          user.email,
+          "Thông báo đăng nhập",
+          `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+              <h2 style="color: #007bff;">Thông báo đăng nhập</h2>
+              <p>Xin chào <strong>${
+                user.profile.firstName + " " + user.profile.lastName || "người dùng"
+              }</strong>,</p>
+              <p>Chúng tôi phát hiện một lần đăng nhập vào tài khoản của bạn.</p>
+              <p><sp>Thời gian: </span> ${new Date().toLocaleString()}</p>
+              <p>Nếu bạn không phải là người thực hiện hãy đổi mật khẩu ngay lập tức.</p>
+              <p>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi.</p>
+              <p><strong>Trân trọng,</strong></p>
+              <p><strong>Admin</strong></p>
+          </div>
+          `
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+        loggedIn: true,
+        message: "Đăng nhập thành công",
+        user,
+      });
+    } catch (error) {}
+  }
+
+  async loginFacebook(req, res) {
+    const { email, first_name, last_name, picture, id } = req.body;
+
+    try {
+      const user = await account.findOne({ email });
+
+      if (!user) {
+        const hashedPassword = await bcrypt.hashPassword(id);
+
+        const newUser = new account({
+          email,
+          password: hashedPassword,
+          profile: {
+            lastName: last_name,
+            firstName: first_name,
+            avatar: picture.data.url,
+          },
+          verify: true,
         });
 
         await newUser.save();

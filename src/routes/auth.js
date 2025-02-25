@@ -11,6 +11,7 @@ router.post("/register", auth.register);
 router.post("/logout", auth.logout);
 router.get("/verify-email/:token", auth.verifyEmail);
 router.post("/login-google", auth.loginGoogle);
+router.post("/login-facebook", auth.loginFacebook);
 // router.post("/forgot-password", auth.forgotPassword);
 // router.post("/reset-password", auth.resetPassword);
 
