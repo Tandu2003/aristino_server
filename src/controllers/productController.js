@@ -1,5 +1,4 @@
 const Product = require("../models/product");
-const ProductDetail = require("../models/productDetails");
 const slugify = require("../config/slugify");
 
 const getProducts = (product) => ({
@@ -27,6 +26,19 @@ class ProductController {
       res.status(200).json(products.map(getProducts));
     } catch (error) {
       res.status(500).json({ error: error.message });
+    }
+  }
+
+  async getProductById(productId) {
+    console.log(productId);
+
+    try {
+      const product = await Product.findById(productId).exec();
+
+      return getProducts(product[0]);
+    } catch (error) {
+      console.error(error.message);
+      return null;
     }
   }
 }
